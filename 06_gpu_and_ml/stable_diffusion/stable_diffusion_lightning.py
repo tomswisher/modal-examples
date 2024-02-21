@@ -21,7 +21,7 @@ with image.imports():
     from huggingface_hub import hf_hub_download
 
 
-@stub.cls(image=image, gpu="a100")
+@stub.cls(image=image, gpu="h100", keep_warm=1)
 class Model:
     @modal.build()
     @modal.enter()
@@ -57,8 +57,9 @@ frontend_path = Path(__file__).parent / "frontend"
 @stub.function(
     mounts=[modal.Mount.from_local_dir(frontend_path, remote_path="/assets")],
     allow_concurrent_inputs=20,
+    keep_warm=1,
 )
-@modal.asgi_app()
+@modal.asgi_app(custom_domains=["potatoes.ai"])
 def app():
     import fastapi.staticfiles
     from fastapi import FastAPI
