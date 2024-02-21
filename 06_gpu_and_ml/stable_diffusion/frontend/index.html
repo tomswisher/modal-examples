@@ -1,62 +1,64 @@
 <html>
-  <head>
-    <script
-      defer
-      src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
-    ></script>
-    <script src="https://cdn.tailwindcss.com"></script>
 
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Modal - SD XL 1.0</title>
-  </head>
-  <body x-data="state()">
-    <div class="max-w-3xl mx-auto pt-4 pb-8 px-10 sm:py-12 sm:px-6 lg:px-8">
-      <h2 class="text-3xl font-medium text-center mb-10">
-        SDXL Lightning on Modal
-      </h2>
+<head>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
 
-      <form
-        class="flex items-center justify-center gap-x-4 gap-y-2 w-full mx-auto mb-4"
-      >
-        <input
-            x-model="prompt"
-            x-init="$nextTick(() => { $el.focus(); submitPrompt(); });"
-            x-on:input.throttle.200ms="submitPrompt()"
-          type="text"
-          class="flex w-full px-3 py-3 text-md bg-white border rounded-md border-neutral-300 ring-offset-background placeholder:text-neutral-500 focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-50 text-center"
-        />
-      </form>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Modal - SDXL Lightning</title>
+</head>
 
-      <div class="mx-auto w-full max-w-[768px] relative grid">
-        <div
-          style="padding-top: 100%"
-          x-show="loading"
-          class="absolute w-full h-full animate-pulse bg-neutral-100 rounded-md"
-        ></div>
-        <img
-          x-show="imageURL"
-          class="rounded-md self-center justify-self-center"
-          :src="imageURL"
-        />
-      </div>
+<body x-data="state()">
+  <div class="max-w-3xl mx-auto pt-4 pb-8 px-10 sm:py-12 sm:px-6 lg:px-8">
+    <div class="text-sm font-semibold tracking-wide uppercase text-center text-white my-8 mb-4">
+      <a href="https://modal.com/docs/examples/"
+        class="inline-flex gap-x-1 items-center py-0.5 px-3 rounded-full bg-black hover:text-black hover:ring hover:ring-black hover:bg-white focus:outline-neutral-400"
+        target="_blank">
+        powered by Modal
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 animate-pulse -mr-1" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+          class="lucide lucide-chevrons-right">
+          <path d="m6 17 5-5-5-5" />
+          <path d="m13 17 5-5-5-5" />
+        </svg>
+      </a>
     </div>
 
-    <script>
-      function state() {
-        return {
-          prompt: "A cinematic shot of a baby racoon wearing an intricate italian priest robe.",
-          features: [],
-          imageURL: "",
-          async submitPrompt() {
-            if (!this.prompt) return;
-            const res = await fetch(`{{ inference_url }}?prompt=${this.prompt}`);
+    <h2 class="text-4xl font-medium text-center mb-10">
+      SDXL Lightning 🥔 on Modal ⚡
+    </h2>
 
-            const blob = await res.blob();
-            this.imageURL = URL.createObjectURL(blob);
-            console.log(this.imageURL);
-          },
-        };
-      }
-    </script>
-  </body>
+    <form @submit.prevent="submitPrompt" class="flex items-center justify-center gap-x-4 gap-y-2 w-full mx-auto mb-4">
+      <input x-model="prompt" x-init="$nextTick(() => { $el.focus(); submitPrompt(); });"
+        x-on:input.throttle.200ms="submitPrompt()" type="text"
+        class="flex w-full px-3 py-3 text-md bg-white border rounded-md border-neutral-300 ring-offset-background placeholder:text-neutral-500 focus:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neutral-400 disabled:cursor-not-allowed disabled:opacity-50 text-center" />
+    </form>
+
+    <div class="mx-auto w-full max-w-[768px] relative grid">
+      <div style="padding-top: 100%" x-show="loading"
+        class="absolute w-full h-full animate-pulse bg-neutral-100 rounded-md"></div>
+      <img x-show="imageURL" class="rounded-md self-center justify-self-center" :src="imageURL" />
+    </div>
+  </div>
+
+
+  <script>
+    function state() {
+      return {
+        prompt: "A cinematic shot of a baby racoon wearing an intricate italian priest robe.",
+        features: [],
+        imageURL: "",
+        async submitPrompt() {
+          if (!this.prompt) return;
+          const res = await fetch(`{{ inference_url }}?prompt=${this.prompt}`);
+
+          const blob = await res.blob();
+          this.imageURL = URL.createObjectURL(blob);
+          console.log(this.imageURL);
+        },
+      };
+    }
+  </script>
+</body>
+
 </html>
