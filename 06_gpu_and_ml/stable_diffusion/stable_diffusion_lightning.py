@@ -38,6 +38,7 @@ with image.imports():
     timeout=60,
     container_idle_timeout=300,
     concurrency_limit=15,
+    keep_warm=2,
 )
 class Model:
     @modal.build()
