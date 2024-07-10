@@ -62,7 +62,7 @@ tei_image = (
         DOCKER_IMAGE,
         add_python="3.10",
     )
-    .dockerfile_commands("ENTRYPOINT []")
+    .entrypoint([])
     .run_function(download_model, gpu=GPU_CONFIG)
     .pip_install("httpx")
 )

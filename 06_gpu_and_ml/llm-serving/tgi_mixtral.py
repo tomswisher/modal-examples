@@ -73,7 +73,7 @@ def download_model():
 
 tgi_image = (
     Image.from_registry("ghcr.io/huggingface/text-generation-inference:1.3.3")
-    .dockerfile_commands("ENTRYPOINT []")
+    .entrypoint([])
     .run_function(
         download_model,
         timeout=60 * 20,

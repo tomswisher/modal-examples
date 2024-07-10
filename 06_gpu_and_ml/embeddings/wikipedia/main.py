@@ -75,7 +75,7 @@ tei_image = (
         "ghcr.io/huggingface/text-embeddings-inference:86-0.4.0",
         add_python="3.10",
     )
-    .dockerfile_commands("ENTRYPOINT []")
+    .entrypoint([])
     .pip_install("httpx", "numpy")
 )
 

@@ -75,7 +75,7 @@ app = App("example-tgi-" + MODEL_ID.split("/")[-1])
 
 tgi_image = (
     Image.from_registry("ghcr.io/huggingface/text-generation-inference:1.4")
-    .dockerfile_commands("ENTRYPOINT []")
+    .entrypoint([])
     .run_function(
         download_model,
         timeout=3600,
