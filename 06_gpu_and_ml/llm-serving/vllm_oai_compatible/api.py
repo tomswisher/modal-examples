@@ -22,11 +22,14 @@
 from pathlib import Path
 
 import modal
+import vllm
+
+assert vllm.__version__ == "0.5.3.post1", f"Expected vLLM version 0.5.3.post1, but got {vllm.__version__}"
 
 vllm_image = modal.Image.debian_slim(python_version="3.10").pip_install(
     [
-        "vllm==0.4.1",  # LLM serving
-        "huggingface_hub==0.22.2",  # download models from the Hugging Face Hub
+        "vllm==0.5.3.post1",  # LLM serving
+        "huggingface_hub>=0.23.2,<1.0",  # download models from the Hugging Face Hub
         "hf-transfer==0.1.6",  # download models faster
     ]
 )
@@ -111,21 +114,24 @@ local_template_path = (
 )
 @modal.asgi_app()
 def serve():
-    import fastapi
-    import vllm.entrypoints.openai.api_server as api_server
+    print("Entering serve function")
+    print(f"MODEL_DIR: {MODEL_DIR}")
+    print(f"N_GPU: {N_GPU}")
+    import vllm
+    assert vllm.__version__ == "0.5.3.post1", f"Expected vLLM version 0.5.3.post1, but got {vllm.__version__}"
+
+    from fastapi import FastAPI, Request, HTTPException
+    from fastapi.middleware.cors import CORSMiddleware
+    from fastapi.responses import JSONResponse
     from vllm.engine.arg_utils import AsyncEngineArgs
     from vllm.engine.async_llm_engine import AsyncLLMEngine
     from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
-    from vllm.entrypoints.openai.serving_completion import (
-        OpenAIServingCompletion,
-    )
-    from vllm.usage.usage_lib import UsageContext
-
-    app = api_server.app
+    from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
 
     # security: CORS middleware for external requests
+    app = FastAPI()
     app.add_middleware(
-        fastapi.middleware.cors.CORSMiddleware,
+        CORSMiddleware,
         allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
@@ -134,11 +140,11 @@ def serve():
 
     # security: auth middleware
     @app.middleware("http")
-    async def authentication(request: fastapi.Request, call_next):
+    async def authentication(request: Request, call_next):
         if not request.url.path.startswith("/v1"):
             return await call_next(request)
-        if request.headers.get("Authorization") != "Bearer " + TOKEN:
-            return fastapi.responses.JSONResponse(
+        if request.headers.get("Authorization") != f"Bearer {TOKEN}":
+            return JSONResponse(
                 content={"error": "Unauthorized"}, status_code=401
             )
         return await call_next(request)
@@ -149,25 +155,62 @@ def serve():
         gpu_memory_utilization=0.90,
         max_model_len=4096,
         enforce_eager=False,  # capture the graph for faster inference, but slower cold starts (30s > 20s)
+        trust_remote_code=True,  # needed for some models
+        dtype="auto",  # automatically choose the right dtype
+        quantization=None,  # no quantization by default
     )
+    print(f"Engine args: {engine_args}")
 
-    engine = AsyncLLMEngine.from_engine_args(
-        engine_args, usage_context=UsageContext.OPENAI_API_SERVER
-    )
+    try:
+        print(f"Engine args: {engine_args}")
+        print("Creating AsyncLLMEngine...")
+        engine = AsyncLLMEngine.from_engine_args(engine_args)
+        print(f"AsyncLLMEngine created successfully")
+        print(f"Model loaded successfully: {MODEL_DIR}")
+        print(f"AsyncLLMEngine attributes: {dir(engine)}")
+        print(f"AsyncLLMEngine max_model_len: {getattr(engine, 'max_model_len', 'Not found')}")
+        print(f"Engine attributes: {dir(engine)}")
+        print(f"Engine max_model_len: {getattr(engine, 'max_model_len', 'Not found')}")
 
-    api_server.openai_serving_chat = OpenAIServingChat(
-        engine,
-        served_model_names=[MODEL_DIR],
-        response_role="assistant",
-        lora_modules=[],
-        chat_template="chat_template.jinja",
-    )
-    api_server.openai_serving_completion = OpenAIServingCompletion(
-        engine, served_model_names=[MODEL_DIR], lora_modules=[]
-    )
+        model_config = {
+            "model": MODEL_DIR,
+            "tokenizer": engine_args.tokenizer,
+        }
+        print(f"Model config: {model_config}")
+        print(f"Model max sequence length: {model_config.get('max_sequence_length', 'Not found')}")
 
+        openai_serving_chat = OpenAIServingChat(
+            engine=engine,
+            model_config=model_config,
+            served_model=MODEL_DIR,
+            response_role="assistant",
+            chat_template="/root/chat_template.jinja",
+            use_beam_search=False,
+            prompt_format=None,
+        )
+        print(f"Chat template loaded: {openai_serving_chat.chat_template}")
+        print(f"OpenAIServingChat initialized: {openai_serving_chat}")
+
+        openai_serving_completion = OpenAIServingCompletion(
+            engine,
+            model_config=model_config,
+            served_model_names=[MODEL_DIR],
+            lora_modules=None,
+            prompt_adapters=None,
+            request_logger=None
+        )
+        print(f"OpenAIServingCompletion initialized: {openai_serving_completion}")
+    except Exception as e:
+        print(f"Error loading model or chat template: {str(e)}")
+        raise
+
+    app.include_router(openai_serving_chat.router)
+    app.include_router(openai_serving_completion.router)
+
+    print("Chat router included:", openai_serving_chat.router)
+    print("Completion router included:", openai_serving_completion.router)
+    print("Server is starting...")
     return app
-
 
 # ## Deploy the server
 #
