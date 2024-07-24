@@ -103,11 +103,11 @@ local_template_path = (
     Path(__file__).parent / "template_llama3.jinja"
 )  # many models have a custom chat template -- using the wrong one subtly degrades results. watch out for it!
 
-
 @app.function(
     image=vllm_image,
     gpu=modal.gpu.A10G(count=N_GPU),
     container_idle_timeout=20 * MINUTES,
+    secrets=[modal.Secret.from_name("my-huggingface-secret")]
 )
 @modal.asgi_app()
 def serve(chat_template: str = None):
@@ -117,7 +117,17 @@ def serve(chat_template: str = None):
     print(f"Chat template: {chat_template}")
     import vllm
     import os
-    assert vllm.__version__ == "0.5.3.post1", f"Expected vLLM version 0.5.3.post1, but got {vllm.__version__}"
+    assert vllm.__version__ == "0.5.3post1", f"Expected vLLM version 0.5.3post1, but got {vllm.__version__}"
+
+    if chat_template:
+        if os.path.isfile(chat_template):
+            with open(chat_template, 'r') as f:
+                chat_template = f.read()
+            print(f"Chat template loaded from file: {chat_template}")
+        else:
+            print("Chat template provided as string")
+    else:
+        print("Warning: No chat template provided. Chat functionality may be limited.")
 
     if chat_template:
         if os.path.isfile(chat_template):
@@ -155,6 +165,9 @@ def serve(chat_template: str = None):
         max_num_batched_tokens=8192,  # Updated to match max_model_len
         max_num_seqs=256,  # adjust based on your needs
         disable_log_stats=True,  # disable logging of stats
+        swap_space=4,  # GB, adjust based on your needs
+        max_num_generations=256,  # adjust based on your needs
+        enable_lora=False,  # enable if using LoRA
     )
     print(f"AsyncEngineArgs initialized: {engine_args}")
 
@@ -195,6 +208,13 @@ def serve(chat_template: str = None):
                 "lora_modules": None,
                 "prompt_adapters": None,
                 "request_logger": None,
+                "best_of": 1,
+                "use_beam_search": False,
+                "top_k": 50,
+                "top_p": 0.95,
+                "temperature": 0.7,
+                "presence_penalty": 0.0,
+                "frequency_penalty": 0.0,
             })
             openai_serving_chat = OpenAIServingChat(
                 engine=engine,
@@ -205,6 +225,13 @@ def serve(chat_template: str = None):
                 lora_modules=None,
                 prompt_adapters=None,
                 request_logger=None,
+                best_of=1,
+                use_beam_search=False,
+                top_k=50,
+                top_p=0.95,
+                temperature=0.7,
+                presence_penalty=0.0,
+                frequency_penalty=0.0,
             )
             print("OpenAIServingChat initialized successfully")
             print("OpenAIServingChat object:", openai_serving_chat)
@@ -222,14 +249,26 @@ def serve(chat_template: str = None):
             "model_config": model_config,
             "served_model_names": [MODEL_DIR],
             "lora_modules": None,
-            "request_logger": None
+            "prompt_adapters": None,
+            "request_logger": None,
+            "best_of": 1,
+            "use_beam_search": False,
+            "top_k": 50,
+            "top_p": 1.0,
+            "temperature": 1.0,
         })
         openai_serving_completion = OpenAIServingCompletion(
             engine=engine,
             model_config=model_config,
             served_model_names=[MODEL_DIR],
             lora_modules=None,
-            request_logger=None
+            prompt_adapters=None,
+            request_logger=None,
+            best_of=1,
+            use_beam_search=False,
+            top_k=50,
+            top_p=1.0,
+            temperature=1.0,
         )
         print("OpenAIServingCompletion initialized successfully")
 
