@@ -107,9 +107,7 @@ N_GPU = 1  # tip: for best results, first upgrade to A100s or H100s, and only th
 TOKEN = "super-secret-token"  # auth token. for production use, replace with a modal.Secret
 
 # Default chat template for NousResearch/Meta-Llama-3-8B-Instruct
-CHAT_TEMPLATE = """[INST] {% for message in messages %}{% if message['role'] == 'user' %}{{ message['content'] }}{% elif message['role'] == 'system' %}{{ message['content'] }}{% endif %}{% if not loop.last %}
-
-{% endif %}{% endfor %}{% if messages[-1]['role'] != 'user' %}{{ input }}{% endif %} [/INST]"""
+CHAT_TEMPLATE = """[INST] {% for message in messages %}{% if message['role'] == 'user' %}{{ message['content'] }}{% elif message['role'] == 'system' %}{{ message['content'] }}{% endif %}{% if not loop.last %}{% endif %}{% endfor %}{% if messages[-1]['role'] != 'user' %}{{ input }}{% endif %} [/INST]"""
 
 
 @app.function(
@@ -191,10 +189,22 @@ def serve(chat_template: str = None):
             f"AsyncLLMEngine created successfully. Engine details: {engine}"
         )
 
-        model_config = {"model": MODEL_DIR, "tokenizer": MODEL_DIR}
+        from vllm.config import ModelConfig
+
+        model_config = ModelConfig(
+            model=MODEL_DIR,
+            tokenizer=MODEL_DIR,
+            tokenizer_mode="auto",
+            trust_remote_code=True,
+            dtype="auto",
+            seed=42,
+            max_model_len=8192,
+        )
+        print(f"ModelConfig instantiated: {model_config}")
         served_model_names = [MODEL_DIR]
-        print("Initializing OpenAIServingChat with engine and model_config")
-        print(f"Model config: {model_config}")
+        print(
+            f"Initializing OpenAIServingChat with engine and model_config: {model_config}"
+        )
         openai_serving_chat = OpenAIServingChat(
             engine=engine,
             model_config=model_config,
@@ -215,6 +225,9 @@ def serve(chat_template: str = None):
             engine=engine,
             model_config=model_config,
             served_model_names=served_model_names,
+            lora_modules=None,
+            prompt_adapters=None,
+            request_logger=None,
         )
         logging.info("OpenAIServingCompletion initialized successfully")
 
