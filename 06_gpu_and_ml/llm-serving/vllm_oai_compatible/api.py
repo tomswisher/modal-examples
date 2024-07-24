@@ -23,14 +23,15 @@
 #
 # First, we install some dependencies with `pip`.
 
-from pathlib import Path
-import traceback
 import logging
+import traceback
 
 import modal
 
 # Configure basic logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 vllm_image = modal.Image.debian_slim(python_version="3.10").pip_install(
     [
@@ -110,11 +111,12 @@ CHAT_TEMPLATE = """[INST] {% for message in messages %}{% if message['role'] == 
 
 {% endif %}{% endfor %}{% if messages[-1]['role'] != 'user' %}{{ input }}{% endif %} [/INST]"""
 
+
 @app.function(
     image=vllm_image,
     gpu=modal.gpu.A10G(count=N_GPU),
     container_idle_timeout=20 * MINUTES,
-    secrets=[modal.Secret.from_name("my-huggingface-secret")]
+    secrets=[modal.Secret.from_name("my-huggingface-secret")],
 )
 @modal.asgi_app()
 def serve(chat_template: str = None):
@@ -124,8 +126,10 @@ def serve(chat_template: str = None):
     logging.info(f"N_GPU: {N_GPU}")
     logging.info(f"Chat template: {chat_template}")
 
-    import vllm
     import os
+
+    import vllm
+
     logging.info(f"Using vLLM version: {vllm.__version__}")
 
     # Use the default chat template if none is provided
@@ -133,7 +137,7 @@ def serve(chat_template: str = None):
         chat_template = CHAT_TEMPLATE
         logging.info("Using default chat template")
     elif os.path.isfile(chat_template):
-        with open(chat_template, 'r') as f:
+        with open(chat_template, "r") as f:
             chat_template = f.read()
         logging.info(f"Chat template loaded from file: {chat_template[:50]}...")
     else:
@@ -146,7 +150,9 @@ def serve(chat_template: str = None):
         jinja2.Template(chat_template)
         logging.info("Chat template validated as correct Jinja2 format")
     except jinja2.exceptions.TemplateError as e:
-        logging.error(f"Error: Invalid Jinja2 format in chat template: {str(e)}")
+        logging.error(
+            f"Error: Invalid Jinja2 format in chat template: {str(e)}"
+        )
         raise
     except Exception as e:
         logging.error(f"Error loading chat template: {str(e)}")
@@ -158,44 +164,57 @@ def serve(chat_template: str = None):
     from vllm.engine.arg_utils import AsyncEngineArgs
     from vllm.engine.async_llm_engine import AsyncLLMEngine
     from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
-    from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
+    from vllm.entrypoints.openai.serving_completion import (
+        OpenAIServingCompletion,
+    )
 
     logging.info("All necessary imports completed successfully")
 
+    logging.info("Initializing AsyncEngineArgs")
     engine_args = AsyncEngineArgs(
         model=MODEL_DIR,
-        tensor_parallel_size=N_GPU,
         gpu_memory_utilization=0.95,
         trust_remote_code=True,
-        dtype="auto",
-        max_num_batched_tokens=8192,
-        max_num_seqs=256,
+        dtype="auto",  # Let vLLM automatically determine the appropriate dtype
+        tensor_parallel_size=N_GPU,  # Use all available GPUs
+        max_num_batched_tokens=8192,  # Maximum number of tokens to process in a batch
+        max_num_seqs=256,  # Limit the number of concurrent sequences
     )
-    logging.info(f"AsyncEngineArgs initialized: {engine_args}")
+    logging.info("AsyncEngineArgs initialized with:")
+    for key, value in vars(engine_args).items():
+        logging.info(f"  {key}: {value}")
 
     try:
+        logging.info("Creating AsyncLLMEngine...")
         engine = AsyncLLMEngine.from_engine_args(engine_args)
-        logging.info(f"AsyncLLMEngine created successfully: {engine}")
+        logging.info(
+            f"AsyncLLMEngine created successfully. Engine details: {engine}"
+        )
 
-        model_config = {
-            "model": MODEL_DIR,
-            "tokenizer": engine_args.tokenizer,
-        }
-        logging.info(f"Model config: {model_config}")
-
+        model_config = {"model": MODEL_DIR, "tokenizer": MODEL_DIR}
+        served_model_names = [MODEL_DIR]
+        print("Initializing OpenAIServingChat with engine and model_config")
+        print(f"Model config: {model_config}")
         openai_serving_chat = OpenAIServingChat(
             engine=engine,
             model_config=model_config,
-            response_role="assistant",
+            served_model_names=served_model_names,
             chat_template=chat_template,
-            served_model_names=[MODEL_DIR],
+            response_role="assistant",
+            lora_modules=[],
+            prompt_adapters=[],
+            request_logger=None,
         )
         logging.info("OpenAIServingChat initialized successfully")
 
+        print(
+            "Initializing OpenAIServingCompletion with engine and model_config"
+        )
+        print(f"Model config: {model_config}")
         openai_serving_completion = OpenAIServingCompletion(
             engine=engine,
             model_config=model_config,
-            served_model_names=[MODEL_DIR],
+            served_model_names=served_model_names,
         )
         logging.info("OpenAIServingCompletion initialized successfully")
 
@@ -224,15 +243,19 @@ def serve(chat_template: str = None):
                     content={"error": "Unauthorized"}, status_code=401
                 )
             return await call_next(request)
+
         logging.info("Authentication middleware added")
 
     except Exception as e:
         logging.error(f"Error initializing server: {str(e)}")
         logging.error("Stack trace: %s", traceback.format_exc())
+        print(f"Error initializing server: {str(e)}")
+        print("Stack trace: %s" % traceback.format_exc())
         raise
 
     logging.info("Server initialization completed successfully")
     return app
+
 
 # ## Deploy the server
 #
