@@ -173,6 +173,7 @@ def serve(chat_template: str = None):
         print(f"{key}: {value}")
     engine_args = AsyncEngineArgs(**kwargs)
     print(f"AsyncEngineArgs initialized: {engine_args}")
+    print(f"engine_args: {engine_args}")
 
     if chat_template is None:
         print("Warning: No chat template provided. Chat functionality may be limited.")
@@ -195,6 +196,7 @@ def serve(chat_template: str = None):
         }
         print(f"Model config: {model_config}")
         print(f"Chat template: {chat_template}")
+        print(f"Detailed model_config: {model_config}")
 
         print("Initializing OpenAIServingChat with the following parameters:")
         print(f"engine: {engine}")
@@ -202,22 +204,13 @@ def serve(chat_template: str = None):
         print(f"MODEL_DIR: {MODEL_DIR}")
 
         try:
-            print("OpenAIServingChat arguments:", {
-                "engine": engine,
-                "model_config": model_config,
-                "response_role": "assistant",
-                "chat_template": chat_template,
-                "served_model_names": [MODEL_DIR],
-                "lora_modules": None,
-                "prompt_adapters": None,
-                "request_logger": None,
-                "use_beam_search": False,
-                "top_k": 50,
-                "top_p": 0.95,
-                "temperature": 0.7,
-                "presence_penalty": 0.0,
-                "frequency_penalty": 0.0,
-            })
+            print("About to initialize OpenAIServingChat with the following parameters:")
+            print(f"engine: {engine}")
+            print(f"engine attributes: {vars(engine)}")
+            print(f"model_config: {model_config}")
+            print(f"chat_template: {chat_template}")
+            print(f"served_model_names: {[MODEL_DIR]}")
+
             openai_serving_chat = OpenAIServingChat(
                 engine=engine,
                 model_config=model_config,
@@ -227,12 +220,7 @@ def serve(chat_template: str = None):
                 lora_modules=None,
                 prompt_adapters=None,
                 request_logger=None,
-                use_beam_search=False,
-                top_k=50,
-                top_p=0.95,
-                temperature=0.7,
-                presence_penalty=0.0,
-                frequency_penalty=0.0,
+                max_model_len=model_config['max_model_len']  # Use dictionary access instead of attribute access
             )
             print("OpenAIServingChat initialized successfully")
             print("OpenAIServingChat object:", openai_serving_chat)
@@ -243,6 +231,7 @@ def serve(chat_template: str = None):
                 print("Warning: No chat template provided. Chat functionality may be limited.")
         except Exception as e:
             print(f"Error initializing OpenAIServingChat: {str(e)}")
+            print("Stack trace:", traceback.format_exc())
             raise
 
         print("Initializing OpenAIServingCompletion with arguments:", {
