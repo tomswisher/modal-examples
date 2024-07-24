@@ -27,6 +27,7 @@ import logging
 import traceback
 
 import modal
+from fastapi import APIRouter, Request
 
 # Configure basic logging
 logging.basicConfig(
@@ -41,6 +42,40 @@ vllm_image = modal.Image.debian_slim(python_version="3.10").pip_install(
         "jinja2==3.1.2",  # for chat template processing
     ]
 )
+
+
+class OpenAIServingChat:
+    def __init__(
+        self,
+        engine,
+        model_config,
+        served_model_names,
+        chat_template,
+        response_role,
+        lora_modules,
+        prompt_adapters,
+        request_logger,
+    ):
+        self.engine = engine
+        self.model_config = model_config
+        self.router = APIRouter()
+        self.served_model_names = served_model_names
+        self.chat_template = chat_template
+        self.response_role = response_role
+        self.lora_modules = lora_modules
+        self.prompt_adapters = prompt_adapters
+        self.request_logger = request_logger
+
+        @self.router.post("/v1/chat/completions")
+        async def chat_completions(request: Request):
+            # Your implementation here
+            pass
+
+        @self.router.post("/v1/completions")
+        async def completions(request: Request):
+            # Your implementation here
+            pass
+
 
 # Then, we need to get hold of the weights for the model we're serving:
 # Meta's LLaMA 3-8B Instruct. We create a Python function for this and add it to the image definition,
@@ -161,7 +196,6 @@ def serve(chat_template: str = None):
     from fastapi.responses import JSONResponse
     from vllm.engine.arg_utils import AsyncEngineArgs
     from vllm.engine.async_llm_engine import AsyncLLMEngine
-    from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
     from vllm.entrypoints.openai.serving_completion import (
         OpenAIServingCompletion,
     )
@@ -200,9 +234,9 @@ def serve(chat_template: str = None):
             seed=42,
             max_model_len=8192,
         )
-        print(f"ModelConfig instantiated: {model_config}")
+        logging.info(f"ModelConfig instantiated: {model_config}")
         served_model_names = [MODEL_DIR]
-        print(
+        logging.info(
             f"Initializing OpenAIServingChat with engine and model_config: {model_config}"
         )
         openai_serving_chat = OpenAIServingChat(
