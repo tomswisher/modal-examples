@@ -25,14 +25,19 @@
 
 from pathlib import Path
 import traceback
+import logging
 
 import modal
 
+# Configure basic logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 vllm_image = modal.Image.debian_slim(python_version="3.10").pip_install(
     [
-        "vllm==0.5.3.post1",  # LLM serving
-        "huggingface_hub>=0.23.2,<1.0",  # download models from the Hugging Face Hub
+        "vllm==0.5.3post1",  # LLM serving (exact version for compatibility)
+        "huggingface_hub==0.23.2",  # download models from the Hugging Face Hub
         "hf-transfer==0.1.6",  # download models faster
+        "jinja2==3.1.2",  # for chat template processing
     ]
 )
 
@@ -99,9 +104,11 @@ app = modal.App("vllm-openai-compatible")
 
 N_GPU = 1  # tip: for best results, first upgrade to A100s or H100s, and only then increase GPU count
 TOKEN = "super-secret-token"  # auth token. for production use, replace with a modal.Secret
-local_template_path = (
-    Path(__file__).parent / "template_llama3.jinja"
-)  # many models have a custom chat template -- using the wrong one subtly degrades results. watch out for it!
+
+# Default chat template for NousResearch/Meta-Llama-3-8B-Instruct
+CHAT_TEMPLATE = """[INST] {% for message in messages %}{% if message['role'] == 'user' %}{{ message['content'] }}{% elif message['role'] == 'system' %}{{ message['content'] }}{% endif %}{% if not loop.last %}
+
+{% endif %}{% endfor %}{% if messages[-1]['role'] != 'user' %}{{ input }}{% endif %} [/INST]"""
 
 @app.function(
     image=vllm_image,
@@ -111,39 +118,41 @@ local_template_path = (
 )
 @modal.asgi_app()
 def serve(chat_template: str = None):
-    print("Starting serve function")
-    print(f"MODEL_DIR: {MODEL_DIR}")
-    print(f"N_GPU: {N_GPU}")
-    print(f"Chat template: {chat_template}")
+    logging.basicConfig(level=logging.INFO)
+    logging.info("Entering serve function")
+    logging.info(f"MODEL_DIR: {MODEL_DIR}")
+    logging.info(f"N_GPU: {N_GPU}")
+    logging.info(f"Chat template: {chat_template}")
+
     import vllm
     import os
-    print(f"Using vLLM version: {vllm.__version__}")
+    logging.info(f"Using vLLM version: {vllm.__version__}")
+
+    # Use the default chat template if none is provided
+    if not chat_template:
+        chat_template = CHAT_TEMPLATE
+        logging.info("Using default chat template")
+    elif os.path.isfile(chat_template):
+        with open(chat_template, 'r') as f:
+            chat_template = f.read()
+        logging.info(f"Chat template loaded from file: {chat_template[:50]}...")
+    else:
+        logging.info("Chat template provided as string")
 
     import jinja2
 
-    if chat_template:
-        try:
-            if os.path.isfile(chat_template):
-                with open(chat_template, 'r') as f:
-                    chat_template = f.read()
-                print(f"Chat template loaded from file: {chat_template[:50]}...")
-            else:
-                print("Chat template provided as string")
+    try:
+        # Validate Jinja2 format
+        jinja2.Template(chat_template)
+        logging.info("Chat template validated as correct Jinja2 format")
+    except jinja2.exceptions.TemplateError as e:
+        logging.error(f"Error: Invalid Jinja2 format in chat template: {str(e)}")
+        raise
+    except Exception as e:
+        logging.error(f"Error loading chat template: {str(e)}")
+        raise
 
-            # Validate Jinja2 format
-            jinja2.Template(chat_template)
-            print("Chat template validated as correct Jinja2 format")
-        except jinja2.exceptions.TemplateError as e:
-            print(f"Error: Invalid Jinja2 format in chat template: {str(e)}")
-            chat_template = None
-        except Exception as e:
-            print(f"Error loading chat template: {str(e)}")
-            chat_template = None
-
-    if not chat_template:
-        print("Warning: No valid chat template provided. Chat functionality may be limited.")
-
-    from fastapi import FastAPI, Request, HTTPException
+    from fastapi import FastAPI, Request
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
     from vllm.engine.arg_utils import AsyncEngineArgs
@@ -151,134 +160,49 @@ def serve(chat_template: str = None):
     from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
     from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
 
-    print("All necessary imports completed successfully")
+    logging.info("All necessary imports completed successfully")
 
-    print("About to define engine_args")
-    print("Initializing AsyncEngineArgs with the following parameters:")
-    print(f"MODEL_DIR: {MODEL_DIR}")
-    print(f"N_GPU: {N_GPU}")
-    print("All kwargs being passed to AsyncEngineArgs:")
-    kwargs = {
-        "model": MODEL_DIR,
-        "tensor_parallel_size": N_GPU,
-        "gpu_memory_utilization": 0.95,
-        "enforce_eager": False,
-        "trust_remote_code": True,
-        "dtype": "auto",
-        "quantization": None,
-        "max_num_batched_tokens": 8192,
-        "max_num_seqs": 256,
-        "disable_log_stats": True,
-        "swap_space": 4,
-        "enable_lora": False,
-    }
-    for key, value in kwargs.items():
-        print(f"{key}: {value}")
-    engine_args = AsyncEngineArgs(**kwargs)
-    print(f"AsyncEngineArgs initialized: {engine_args}")
-    print(f"engine_args: {engine_args}")
-
-    if chat_template is None:
-        print("Warning: No chat template provided. Chat functionality may be limited.")
-    else:
-        print(f"Chat template successfully loaded: {chat_template[:50]}...")
-
-    print(f"engine_args defined: {engine_args}")
-    print("AsyncEngineArgs initialized successfully")
+    engine_args = AsyncEngineArgs(
+        model=MODEL_DIR,
+        tensor_parallel_size=N_GPU,
+        gpu_memory_utilization=0.95,
+        trust_remote_code=True,
+        dtype="auto",
+        max_num_batched_tokens=8192,
+        max_num_seqs=256,
+    )
+    logging.info(f"AsyncEngineArgs initialized: {engine_args}")
 
     try:
-        print("About to create AsyncLLMEngine")
         engine = AsyncLLMEngine.from_engine_args(engine_args)
-        print("AsyncLLMEngine created successfully")
-        print(f"Model loaded successfully: {MODEL_DIR}")
-
-        print("engine_args type:", type(engine_args))
-        print("engine_args contents:", vars(engine_args))
+        logging.info(f"AsyncLLMEngine created successfully: {engine}")
 
         model_config = {
             "model": MODEL_DIR,
             "tokenizer": engine_args.tokenizer,
         }
+        logging.info(f"Model config: {model_config}")
 
-        print(f"Model config: {model_config}")
+        openai_serving_chat = OpenAIServingChat(
+            engine=engine,
+            model_config=model_config,
+            response_role="assistant",
+            chat_template=chat_template,
+            served_model_names=[MODEL_DIR],
+        )
+        logging.info("OpenAIServingChat initialized successfully")
 
-        print(f"Model config: {model_config}")
-        print(f"Chat template: {chat_template}")
-        print(f"Detailed model_config: {model_config}")
-
-        print("Initializing OpenAIServingChat with the following parameters:")
-        print(f"engine: {engine}")
-        print(f"model_config: {model_config}")
-        print(f"MODEL_DIR: {MODEL_DIR}")
-
-        try:
-            print("About to initialize OpenAIServingChat with the following parameters:")
-            print(f"engine: {engine}")
-            print(f"engine attributes: {vars(engine)}")
-            print(f"model_config: {model_config}")
-            print(f"chat_template: {chat_template}")
-            print(f"served_model_names: {[MODEL_DIR]}")
-
-            openai_serving_chat = OpenAIServingChat(
-                engine=engine,
-                model_config=model_config,
-                response_role="assistant",
-                chat_template=chat_template,
-                served_model_names=[MODEL_DIR],
-                lora_modules=None,
-                prompt_adapters=None,
-                request_logger=None
-            )
-            print("OpenAIServingChat initialized successfully")
-            print("OpenAIServingChat object:", openai_serving_chat)
-            print("OpenAIServingChat attributes:", vars(openai_serving_chat))
-            if chat_template:
-                print(f"Chat template successfully loaded and applied: {chat_template[:50]}...")
-            else:
-                print("Warning: No chat template provided. Using default template.")
-        except Exception as e:
-            print(f"Error initializing OpenAIServingChat: {str(e)}")
-            print("Stack trace:", traceback.format_exc())
-            raise
-
-        print("Initializing OpenAIServingCompletion with arguments:", {
-            "engine": engine,
-            "model_config": model_config,
-            "served_model_names": [MODEL_DIR],
-            "lora_modules": None,
-            "prompt_adapters": None,
-            "request_logger": None,
-            "best_of": 1,
-            "use_beam_search": False,
-            "top_k": 50,
-            "top_p": 1.0,
-            "temperature": 1.0,
-        })
         openai_serving_completion = OpenAIServingCompletion(
             engine=engine,
             model_config=model_config,
             served_model_names=[MODEL_DIR],
-            lora_modules=None,
-            prompt_adapters=None,
-            request_logger=None,
-            best_of=1,
-            use_beam_search=False,
-            top_k=50,
-            top_p=1.0,
-            temperature=1.0,
         )
-        print("OpenAIServingCompletion initialized successfully")
+        logging.info("OpenAIServingCompletion initialized successfully")
 
-        print("About to create FastAPI app")
         app = FastAPI()
-        print(f"FastAPI app created successfully: {app}")
-        print("Adding OpenAIServingChat and OpenAIServingCompletion routers")
-
         app.include_router(openai_serving_chat.router)
         app.include_router(openai_serving_completion.router)
-        print("Chat and Completion routers included in the app")
-        print("Chat router included:", openai_serving_chat.router)
-        print("Completion router included:", openai_serving_completion.router)
+        logging.info("Chat and Completion routers included in the app")
 
         # security: CORS middleware for external requests
         app.add_middleware(
@@ -288,7 +212,7 @@ def serve(chat_template: str = None):
             allow_methods=["*"],
             allow_headers=["*"],
         )
-        print("CORS middleware added")
+        logging.info("CORS middleware added")
 
         # security: auth middleware
         @app.middleware("http")
@@ -300,21 +224,14 @@ def serve(chat_template: str = None):
                     content={"error": "Unauthorized"}, status_code=401
                 )
             return await call_next(request)
-        print("Authentication middleware added")
+        logging.info("Authentication middleware added")
 
     except Exception as e:
-        print(f"Error initializing server: {str(e)}")
-        print("Stack trace:", traceback.format_exc())
+        logging.error(f"Error initializing server: {str(e)}")
+        logging.error("Stack trace: %s", traceback.format_exc())
         raise
 
-    print("Chat router included:", openai_serving_chat.router)
-    print("Completion router included:", openai_serving_completion.router)
-    print("Server is starting...")
-
-    # All old vLLM API references have been updated
-    print("All vLLM API references have been updated successfully.")
-
-    print("vllm_openai_compatible_serve function completed")
+    logging.info("Server initialization completed successfully")
     return app
 
 # ## Deploy the server
