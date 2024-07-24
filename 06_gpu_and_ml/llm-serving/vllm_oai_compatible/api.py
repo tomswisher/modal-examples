@@ -30,7 +30,7 @@ import modal
 
 vllm_image = modal.Image.debian_slim(python_version="3.10").pip_install(
     [
-        "vllm==0.5.3post1",  # LLM serving
+        "vllm==0.5.3.post1",  # LLM serving
         "huggingface_hub>=0.23.2,<1.0",  # download models from the Hugging Face Hub
         "hf-transfer==0.1.6",  # download models faster
     ]
@@ -117,7 +117,7 @@ def serve(chat_template: str = None):
     print(f"Chat template: {chat_template}")
     import vllm
     import os
-    assert vllm.__version__ == "0.5.3post1", f"Expected vLLM version 0.5.3post1, but got {vllm.__version__}"
+    print(f"Using vLLM version: {vllm.__version__}")
 
     if chat_template:
         if os.path.isfile(chat_template):
@@ -153,22 +153,25 @@ def serve(chat_template: str = None):
     print("Initializing AsyncEngineArgs with the following parameters:")
     print(f"MODEL_DIR: {MODEL_DIR}")
     print(f"N_GPU: {N_GPU}")
-    engine_args = AsyncEngineArgs(
-        model=MODEL_DIR,
-        tensor_parallel_size=N_GPU,
-        gpu_memory_utilization=0.95,
-        max_model_len=8192,
-        enforce_eager=False,  # capture the graph for faster inference, but slower cold starts (30s > 20s)
-        trust_remote_code=True,  # needed for some models
-        dtype="auto",  # automatically choose the right dtype
-        quantization=None,  # no quantization by default
-        max_num_batched_tokens=8192,  # Updated to match max_model_len
-        max_num_seqs=256,  # adjust based on your needs
-        disable_log_stats=True,  # disable logging of stats
-        swap_space=4,  # GB, adjust based on your needs
-        max_num_generations=256,  # adjust based on your needs
-        enable_lora=False,  # enable if using LoRA
-    )
+    print("All kwargs being passed to AsyncEngineArgs:")
+    kwargs = {
+        "model": MODEL_DIR,
+        "tensor_parallel_size": N_GPU,
+        "gpu_memory_utilization": 0.95,
+        "max_model_len": 8192,
+        "enforce_eager": False,
+        "trust_remote_code": True,
+        "dtype": "auto",
+        "quantization": None,
+        "max_num_batched_tokens": 8192,
+        "max_num_seqs": 256,
+        "disable_log_stats": True,
+        "swap_space": 4,
+        "enable_lora": False,
+    }
+    for key, value in kwargs.items():
+        print(f"{key}: {value}")
+    engine_args = AsyncEngineArgs(**kwargs)
     print(f"AsyncEngineArgs initialized: {engine_args}")
 
     if chat_template is None:
@@ -188,7 +191,7 @@ def serve(chat_template: str = None):
         model_config = {
             "model": MODEL_DIR,
             "tokenizer": engine_args.tokenizer,
-            "max_model_len": engine_args.max_model_len,  # Add this line
+            "max_model_len": engine_args.max_model_len,
         }
         print(f"Model config: {model_config}")
         print(f"Chat template: {chat_template}")
@@ -208,7 +211,6 @@ def serve(chat_template: str = None):
                 "lora_modules": None,
                 "prompt_adapters": None,
                 "request_logger": None,
-                "best_of": 1,
                 "use_beam_search": False,
                 "top_k": 50,
                 "top_p": 0.95,
@@ -225,7 +227,6 @@ def serve(chat_template: str = None):
                 lora_modules=None,
                 prompt_adapters=None,
                 request_logger=None,
-                best_of=1,
                 use_beam_search=False,
                 top_k=50,
                 top_p=0.95,
