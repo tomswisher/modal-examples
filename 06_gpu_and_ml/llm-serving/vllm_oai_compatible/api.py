@@ -189,11 +189,21 @@ def serve(chat_template: str = None):
         print("AsyncLLMEngine created successfully")
         print(f"Model loaded successfully: {MODEL_DIR}")
 
+        print("engine_args type:", type(engine_args))
+        print("engine_args contents:", vars(engine_args))
+
         model_config = {
             "model": MODEL_DIR,
             "tokenizer": engine_args.tokenizer,
-            "max_model_len": engine_args.max_model_len,
         }
+
+        if hasattr(engine_args, 'max_model_len'):
+            model_config["max_model_len"] = engine_args.max_model_len
+        elif isinstance(engine_args, dict) and 'max_model_len' in engine_args:
+            model_config["max_model_len"] = engine_args['max_model_len']
+        else:
+            print("Warning: max_model_len not found in engine_args")
+
         print(f"Model config: {model_config}")
         print(f"Chat template: {chat_template}")
         print(f"Detailed model_config: {model_config}")
@@ -219,8 +229,7 @@ def serve(chat_template: str = None):
                 served_model_names=[MODEL_DIR],
                 lora_modules=None,
                 prompt_adapters=None,
-                request_logger=None,
-                max_model_len=model_config['max_model_len']  # Use dictionary access instead of attribute access
+                request_logger=None
             )
             print("OpenAIServingChat initialized successfully")
             print("OpenAIServingChat object:", openai_serving_chat)
