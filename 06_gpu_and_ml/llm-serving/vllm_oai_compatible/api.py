@@ -119,25 +119,29 @@ def serve(chat_template: str = None):
     import os
     print(f"Using vLLM version: {vllm.__version__}")
 
-    if chat_template:
-        if os.path.isfile(chat_template):
-            with open(chat_template, 'r') as f:
-                chat_template = f.read()
-            print(f"Chat template loaded from file: {chat_template}")
-        else:
-            print("Chat template provided as string")
-    else:
-        print("Warning: No chat template provided. Chat functionality may be limited.")
+    import jinja2
 
     if chat_template:
-        if os.path.isfile(chat_template):
-            with open(chat_template, 'r') as f:
-                chat_template = f.read()
-            print(f"Chat template loaded from file: {chat_template}")
-        else:
-            print("Chat template provided as string")
-    else:
-        print("Warning: No chat template provided. Chat functionality may be limited.")
+        try:
+            if os.path.isfile(chat_template):
+                with open(chat_template, 'r') as f:
+                    chat_template = f.read()
+                print(f"Chat template loaded from file: {chat_template[:50]}...")
+            else:
+                print("Chat template provided as string")
+
+            # Validate Jinja2 format
+            jinja2.Template(chat_template)
+            print("Chat template validated as correct Jinja2 format")
+        except jinja2.exceptions.TemplateError as e:
+            print(f"Error: Invalid Jinja2 format in chat template: {str(e)}")
+            chat_template = None
+        except Exception as e:
+            print(f"Error loading chat template: {str(e)}")
+            chat_template = None
+
+    if not chat_template:
+        print("Warning: No valid chat template provided. Chat functionality may be limited.")
 
     from fastapi import FastAPI, Request, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
@@ -158,7 +162,6 @@ def serve(chat_template: str = None):
         "model": MODEL_DIR,
         "tensor_parallel_size": N_GPU,
         "gpu_memory_utilization": 0.95,
-        "max_model_len": 8192,
         "enforce_eager": False,
         "trust_remote_code": True,
         "dtype": "auto",
@@ -197,12 +200,7 @@ def serve(chat_template: str = None):
             "tokenizer": engine_args.tokenizer,
         }
 
-        if hasattr(engine_args, 'max_model_len'):
-            model_config["max_model_len"] = engine_args.max_model_len
-        elif isinstance(engine_args, dict) and 'max_model_len' in engine_args:
-            model_config["max_model_len"] = engine_args['max_model_len']
-        else:
-            print("Warning: max_model_len not found in engine_args")
+        print(f"Model config: {model_config}")
 
         print(f"Model config: {model_config}")
         print(f"Chat template: {chat_template}")
@@ -235,9 +233,9 @@ def serve(chat_template: str = None):
             print("OpenAIServingChat object:", openai_serving_chat)
             print("OpenAIServingChat attributes:", vars(openai_serving_chat))
             if chat_template:
-                print(f"Chat template successfully loaded: {chat_template[:50]}...")
+                print(f"Chat template successfully loaded and applied: {chat_template[:50]}...")
             else:
-                print("Warning: No chat template provided. Chat functionality may be limited.")
+                print("Warning: No chat template provided. Using default template.")
         except Exception as e:
             print(f"Error initializing OpenAIServingChat: {str(e)}")
             print("Stack trace:", traceback.format_exc())
