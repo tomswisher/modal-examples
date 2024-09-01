@@ -1,87 +1,31 @@
-import io
 import logging
 import os
 
 import fastapi
 import modal
 
-app = modal.App("flux-bot")
+from .flux import Flux, app as model_app
 
-flux_image = (
-    modal.Image.debian_slim(python_version="3.12")
-    .apt_install(
-        "git",
-        "libglib2.0-0",
-        "libsm6",
-        "libxrender1",
-        "libxext6",
-        "ffmpeg",
-        "libgl1",
-    )
-    .pip_install(
-        "invisible_watermark==0.2.0",
-        "transformers==4.44.0",
-        "accelerate==0.33.0",
-        "safetensors==0.4.4",
-        "sentencepiece==0.2.0",
-        "diffusers==0.30.1",
-        "slack-sdk",
-    )
-)
+app = modal.App("flux-bot")
+app.include(model_app)
 
 slackbot_image = modal.Image.debian_slim().pip_install(
-    "slack-sdk", "slack-bolt", "openai", "langchain"
+    "slack-sdk", "slack-bolt", "langchain", "langchain-anthropic"
 )
 
-with flux_image.imports():
+with slackbot_image.imports():
     import slack_sdk
-    import torch
-    from diffusers import FluxPipeline
 
-
-@app.cls(
-    gpu="A100",
-    image=flux_image,
-    secrets=[
-        modal.Secret.from_name("flux-bot-secret"),
-        modal.Secret.from_name("huggingface"),
-    ],
-    container_idle_timeout=300,
-)
-class Flux:
-    @modal.build()
-    @modal.enter()
-    def enter(self):
-        from huggingface_hub import snapshot_download
-        from transformers.utils import move_cache
-
-        snapshot_download("black-forest-labs/FLUX.1-dev")
-
-        self.pipe = FluxPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-dev", torch_dtype=torch.bfloat16
-        )
-        self.pipe.to("cuda")
-        move_cache()
-
-    @modal.method()
-    async def inference(self, prompt: str):
-        image = self.pipe(
-            prompt,
-            output_type="pil",
-            width=512,
-            height=512,
-            num_inference_steps=4,  # use a larger number if you are using [dev], smaller for [schnell]
-        ).images[0]
-
-        with io.BytesIO() as buf:
-            image.save(buf, format="JPEG")
-            return buf.getvalue()
+    from .prompter import generate_prompt
 
 
 @app.function(
     keep_warm=1,
     image=slackbot_image,
-    secrets=[modal.Secret.from_name("flux-bot-secret")],
+    secrets=[
+        modal.Secret.from_name("flux-bot-secret"),
+        modal.Secret.from_name("anthropic-secret"),
+    ],
     allow_concurrent_inputs=100,
 )
 @modal.asgi_app(label="flux")
@@ -135,6 +79,7 @@ def entrypoint():
                             "type": "plain_text_input",
                             "action_id": "text_input",
                             "initial_value": initial_value,
+                            "multiline": True,
                         },
                     }
                 ],
@@ -151,6 +96,7 @@ def entrypoint():
         user_input = view["state"]["values"]["input_block"]["text_input"][
             "value"
         ]
+
         img_bytes = Flux().inference.remote(user_input)
 
         try:
@@ -217,3 +163,10 @@ def entrypoint():
         return await handler.handle(request)
 
     return fastapi_app
+
+
+@app.function(
+    image=slackbot_image, secrets=[modal.Secret.from_name("anthropic-secret")]
+)
+def test_prompt():
+    print(generate_prompt("Modal makes things too easy"))
