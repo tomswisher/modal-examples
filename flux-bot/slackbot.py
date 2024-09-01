@@ -97,7 +97,11 @@ def entrypoint():
             "value"
         ]
 
-        img_bytes = Flux().inference.remote(user_input)
+        prompt = generate_prompt(user_input)
+
+        print(f"Input: {user_input}\n\nPrompt: {prompt}")
+
+        img_bytes = Flux().inference.remote(prompt)
 
         try:
             client.files_upload(
