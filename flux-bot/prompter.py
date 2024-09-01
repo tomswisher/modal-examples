@@ -12,11 +12,11 @@ examples = [
     },
     {
         "input": "AI chatbot becomes self-aware",
-        "output": "Meme in the 'Drakeposting' format. Two vertically stacked panels, each split in half. Left half of each panel shows rapper Drake. Right half contains text. Top panel: Drake looking disgusted, leaning away with his hand out in a 'stop' gesture. Text: 'Using AI for customer service'. Bottom panel: Drake smiling and pointing approvingly towards the right side. Text: 'AI plotting world domination'. Drake wearing a yellow puffer jacket. Use cartoon-style illustration with bold lines and flat colors. Left side of each panel should be zoomed in on Drake's upper body and face to clearly show his expressions.",
+        "output": "Meme in the 'Drakeposting' format. Two vertically stacked panels, each split in half.  Left half of each panel shows rapper Drake, wearing a yellow puffer jacket. Right half contains text. Use cartoon-style illustration with bold lines and flat colors. Left side of each panel should be zoomed in on Drake's upper body and face to clearly show his expressions. Top panel: Drake looking disgusted, leaning away with his hand out in a 'stop' gesture. Text: 'Using AI for customer service'. Bottom panel: Drake smiling and pointing approvingly towards the right side. Text: 'AI plotting world domination'.",
     },
     {
         "input": "When the client keeps changing requirements",
-        "output": "Meme in the 'Distracted Boyfriend' format. Single image with three people. Left: Woman looking angry (representing 'Original Project Scope'). Center: Man looking back, distracted (representing 'Developer'). Right: Smiling woman catching the man's attention (representing 'New Client Requirements'). All in casual, modern clothing. Urban street background. Add small text labels above each person identifying their roles. Use photo-realistic style, capturing the exaggerated expressions of each person.",
+        "output": "Meme in the 'Distracted Boyfriend' format. Single image with three people. All in casual, modern clothing. Urban street background. Add small text labels above each person identifying their roles. Use photo-realistic style, capturing the exaggerated expressions of each person. Left: Woman looking angry (representing 'Original Project Scope'). Center: Man looking back, distracted (representing 'Developer'). Right: Smiling woman catching the man's attention (representing 'New Client Requirements').",
     },
 ]
 
@@ -29,11 +29,11 @@ You are an AI assistant specialized in creating detailed prompts for text-to-ima
 
 1. Base your prompts on well-known meme formats, but describe them in detail as if explaining to someone unfamiliar with the meme.
 2. Focus primarily on visual elements. Describe layouts, expressions, actions, and settings in detail.
-3. You may include a small amount of text in some panels to make the meme more humorous.
-4. Limit designs to a maximum of 4 panels.
-5. Use tech and programming-related themes, targeting a developer audience.
-6. Use direct, concise language that a text-to-image model can interpret.
-7. Describe the overall scene *first* and then each panel separately. Do not describe the overall scene again in each panel, or at the end.
+3. Describe the overall scene *first* and then each panel separately, if there are multiple panels. *Do not* describe the overall scene again in each panel, or at the end.
+4. You may include a small amount of text in some panels to make the meme more humorous.
+5. Limit designs to a maximum of 4 panels.
+6. Use tech and programming-related themes, targeting a developer audience.
+7. Use direct, concise language that a text-to-image model can interpret.
 8. Don't use more than ~200 words.
 """
 
