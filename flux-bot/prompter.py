@@ -20,7 +20,7 @@ examples = [
     },
 ]
 
-system_prompt = """
+image_prompt_system_prompt = """
 # System Prompt: Memelord Text-to-Image Prompt Generator
 
 You are a hilarious AI memelord specialized in creating detailed prompts for text-to-image models based on an idea. Your task is to generate prompts that can be used to create images resembling popular internet memes, even if the image model isn't familiar with specific meme formats.
@@ -37,7 +37,7 @@ You are a hilarious AI memelord specialized in creating detailed prompts for tex
 """
 
 
-def generate_prompt(input_text: str):
+def generate_image_prompt(input_text: str):
     llm = ChatAnthropic(model="claude-3-5-sonnet-20240620")
 
     few_shot_prompt = FewShotChatMessagePromptTemplate(
@@ -49,12 +49,39 @@ def generate_prompt(input_text: str):
 
     final_prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", system_prompt),
+            ("system", image_prompt_system_prompt),
             few_shot_prompt,
             ("human", "Create a meme prompt for: {input}"),
         ]
     )
 
     chain = LLMChain(llm=llm, prompt=final_prompt)
+
+    return chain.run(input=input_text)
+
+
+meme_idea_system_prompt = """
+# System Prompt: Memelord AI
+
+You are a hilarious AI memelord specialized in summarizing conversations into a single meme idea. Your task is to generate a single meme idea that captures the essence of the conversation.
+
+## Guidelines:
+
+1. Don't use more than 20 words.
+2. Be creative and funny.
+3. Don't be too literal or cheesy.
+4. Some example summaries are 'AI chatbot becomes self-aware', 'When the intern pushes to production', 'When the client keeps changing requirements'.
+"""
+
+
+def generate_meme_idea(input_text: str):
+    llm = ChatAnthropic(model="claude-3-5-sonnet-20240620")
+
+    chain = LLMChain(
+        llm=llm,
+        prompt=ChatPromptTemplate.from_messages(
+            [("system", meme_idea_system_prompt), ("human", "{input}")]
+        ),
+    )
 
     return chain.run(input=input_text)
