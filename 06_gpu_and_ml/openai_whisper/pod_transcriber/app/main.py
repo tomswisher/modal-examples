@@ -14,8 +14,8 @@ import modal
 from . import config, podcast, search
 
 logger = config.get_logger(__name__)
-volume = modal.NetworkFileSystem.from_name(
-    "dataset-cache-vol", create_if_missing=True
+volume = modal.Volume.from_name(
+    "podcast-dataset-cache-vol", create_if_missing=True
 )
 
 app_image = (
@@ -65,7 +65,7 @@ def get_transcript_path(guid_hash: str) -> pathlib.Path:
     return config.TRANSCRIPTIONS_DIR / f"{guid_hash}.json"
 
 
-@app.function(network_file_systems={config.CACHE_DIR: volume})
+@app.function(volumes={config.CACHE_DIR: volume})
 def populate_podcast_metadata(podcast_id: str):
     from gql import gql
 
@@ -96,7 +96,7 @@ def populate_podcast_metadata(podcast_id: str):
     mounts=[
         modal.Mount.from_local_dir(config.ASSETS_PATH, remote_path="/assets")
     ],
-    network_file_systems={config.CACHE_DIR: volume},
+    volumes={config.CACHE_DIR: volume},
     keep_warm=2,
 )
 @modal.asgi_app()
@@ -112,9 +112,7 @@ def fastapi_app():
     return web_app
 
 
-@app.function(
-    image=app_image,
-)
+@app.function()
 def search_podcast(name):
     from gql import gql
 
@@ -139,7 +137,7 @@ def search_podcast(name):
 
 @app.function(
     image=search_image,
-    network_file_systems={config.CACHE_DIR: volume},
+    volumes={config.CACHE_DIR: volume},
     timeout=(400 * 60),
 )
 def refresh_index():
@@ -281,8 +279,7 @@ def split_silences(
 
 
 @app.function(
-    image=app_image,
-    network_file_systems={config.CACHE_DIR: volume},
+    volumes={config.CACHE_DIR: volume},
     cpu=2,
     timeout=400,
 )
@@ -329,8 +326,7 @@ def transcribe_segment(
 
 
 @app.function(
-    image=app_image,
-    network_file_systems={config.CACHE_DIR: volume},
+    volumes={config.CACHE_DIR: volume},
     timeout=900,
 )
 def transcribe_episode(
@@ -338,6 +334,8 @@ def transcribe_episode(
     result_path: pathlib.Path,
     model: config.ModelSpec,
 ):
+    logger.info(f"Transcribing episode from {audio_filepath} using {model.name}")
+    logger.info("splitting silences...")
     segment_gen = split_silences(str(audio_filepath))
 
     output_text = ""
@@ -360,8 +358,7 @@ def transcribe_episode(
 
 
 @app.function(
-    image=app_image,
-    network_file_systems={config.CACHE_DIR: volume},
+    volumes={config.CACHE_DIR: volume},
     timeout=900,
 )
 def process_episode(podcast_id: str, episode_id: str):
@@ -389,6 +386,7 @@ def process_episode(podcast_id: str, episode_id: str):
             url=episode.original_download_link,
             destination=destination_path,
         )
+        volume.commit()
 
         logger.info(
             f"Using the {model.name} model which has {model.params} parameters."
@@ -402,7 +400,7 @@ def process_episode(podcast_id: str, episode_id: str):
             )
             logger.info("Skipping transcription.")
         else:
-            transcribe_episode.remote(
+            transcribe_episode.local(
                 audio_filepath=destination_path,
                 result_path=transcription_path,
                 model=model,
@@ -413,10 +411,7 @@ def process_episode(podcast_id: str, episode_id: str):
     return episode
 
 
-@app.function(
-    image=app_image,
-    network_file_systems={config.CACHE_DIR: volume},
-)
+@app.function(volumes={config.CACHE_DIR: volume})
 def fetch_episodes(show_name: str, podcast_id: str, max_episodes=100):
     import hashlib
 

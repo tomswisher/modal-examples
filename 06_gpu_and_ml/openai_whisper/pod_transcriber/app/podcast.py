@@ -60,7 +60,7 @@ def download_podcast_file(url: str) -> DownloadResult:
         data=None,
         # Set a user agent to avoid 403 response from some podcast audio servers.
         headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.47 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         },
     )
     with urllib.request.urlopen(req) as response:

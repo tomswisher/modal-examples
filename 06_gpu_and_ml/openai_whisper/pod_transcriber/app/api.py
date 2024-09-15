@@ -13,6 +13,7 @@ from .main import (
     populate_podcast_metadata,
     process_episode,
     search_podcast,
+    volume,
 )
 from .podcast import coalesce_short_transcript_segments
 
@@ -35,6 +36,7 @@ async def get_episode(podcast_id: str, episode_guid_hash: str):
     )
     transcription_path = get_transcript_path(episode_guid_hash)
 
+    volume.reload()
     with open(episode_metadata_path, "r") as f:
         metadata = json.load(f)
 
@@ -141,19 +143,19 @@ async def poll_status(call_id: str):
     except Exception as exc:
         if exc.args:
             inner_exc = exc.args[0]
-            if "HTTPError 403" in inner_exc:
+            if isinstance(inner_exc, str) and "HTTPError 403" in inner_exc:
                 return dict(error="permission denied on podcast audio download")
         return dict(error="unknown job processing error")
 
     try:
-        map_root = graph[0].children[0].children[0]
+        map_root = graph[0].children[0]
     except IndexError:
         return dict(finished=False)
 
-    assert map_root.function_name == "main.transcribe_episode"
+    assert map_root.function_name == "main.process_episode", f"map_root: {map_root.function_name} != main.process_episode"
 
     leaves = map_root.children
-    tasks = len(set([leaf.task_id for leaf in leaves]))
+    tasks = len(set([leaf.input_id for leaf in leaves]))
     done_segments = len(
         [leaf for leaf in leaves if leaf.status == InputStatus.SUCCESS]
     )
