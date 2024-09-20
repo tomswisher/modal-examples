@@ -36,10 +36,12 @@ SCENARIOS = [  # (audio_type, batch_size, assisted)
 @pytest.fixture
 def perform_request(benchmark):
     def _perform_request(audio_type, batch_size, assisted, bench=True):
+
+        # Warm up the TCP connection
         session = requests.Session()
-        # for _ in range(5):
-        #     print(f"Starting request at {time.monotonic()}")
-        #     session.post(URL, files = {'file': (AUDIO_FILES['long'], open(AUDIO_FILES['long'], 'rb'), 'audio/wav')}, data=None)
+        for _ in range(5):
+            print(f"Starting request at {time.monotonic()}")
+            session.post(URL, files = {'file': (AUDIO_FILES['long'], open(AUDIO_FILES['long'], 'rb'), 'audio/wav')}, data=None)
         
         def fn():
             files = {'file': (AUDIO_FILES[audio_type], open(AUDIO_FILES[audio_type], 'rb'), 'audio/wav')}
