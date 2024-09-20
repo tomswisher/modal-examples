@@ -10,7 +10,7 @@ session = requests.Session()
 
 # warm up TCP connection
 for _ in range(5):
-    requests.post(URL, data=long)
+    session.post(URL, data=long)
 
 differences = []
 for _ in range(10):
