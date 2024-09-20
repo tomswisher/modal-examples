@@ -37,7 +37,7 @@ def setup_logger():
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.INFO)
 
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     console_handler.setFormatter(formatter)
 
     logger.addHandler(console_handler)
@@ -174,7 +174,7 @@ class Model:
     def enter(self):
         self.assets_dir = "/assets"
         import sys
-        sys.path.append('/whisper_scripts')
+        sys.path.append("/whisper_scripts")
         # import importlib.util
 
         from run import WhisperTRTLLM, decode_dataset
@@ -222,7 +222,7 @@ class Model:
 
         webapp = FastAPI()
         import sys
-        sys.path.append('/whisper_scripts')
+        sys.path.append("/whisper_scripts")
         from run import decode_wav_file
 
         @webapp.get("/", response_class=PlainTextResponse)
