@@ -1,6 +1,7 @@
 import requests
 import time
 from random import randbytes
+import numpy as np
 
 short = randbytes(6 * 1024 * 1024)
 long = randbytes(12 * 1024 * 1024)
@@ -9,10 +10,12 @@ session = requests.Session()
 for _ in range(5):
     requests.post(URL, data=long)
 
+differences = []
+for _ in range(10):
+    start = time.monotonic() 
+    session.post(URL, data=short)
+    end = time.monotonic()
+    differences.append(end - start)
 
-start = time.monotonic() 
-session.post(URL, data=short)
-end = time.monotonic()
-print(f"Time taken: {end - start}")
-
+print(np.percentile(differences, 50), np.percentile(differences, 90))
 

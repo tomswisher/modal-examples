@@ -11,4 +11,14 @@ pytest bench.py
 ```
 
 
+------------------------
 
+For just benchmarking modal latency
+
+```
+modal deploy test.py
+```
+
+```
+pytest test.py
+```
