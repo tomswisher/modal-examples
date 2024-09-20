@@ -7,6 +7,8 @@ short = randbytes(6 * 1024 * 1024)
 long = randbytes(12 * 1024 * 1024)
 URL = "https://modal-labs--latency-test-crazy-final-web.modal.run"
 session = requests.Session()
+
+# warm up TCP connection
 for _ in range(5):
     requests.post(URL, data=long)
 
