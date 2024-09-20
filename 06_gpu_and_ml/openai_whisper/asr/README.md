@@ -4,12 +4,11 @@ To deploy model
 modal deploy model.py
 ```
 
-To test latency, update the URL in bench.py and run
+To test latency, update the URL in `bench.py` and run
 
 ```
 pytest bench.py
 ```
-
 
 ------------------------
 
@@ -20,5 +19,5 @@ modal deploy test.py
 ```
 
 ```
-pytest test.py
+python test_script.py
 ```
