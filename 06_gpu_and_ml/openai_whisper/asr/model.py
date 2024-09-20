@@ -284,11 +284,6 @@ class Model:
 
         return webapp
 
-@app.function(image = image, gpu=GPU_CONFIG)
-def fn():
-    print("hi")
-
-
 def extract_assistant_response(output_text):
     """Model-specific code to extract model responses.
 
