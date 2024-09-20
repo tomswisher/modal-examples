@@ -4,7 +4,7 @@ import json
 import time
 
 # Define URL and audio files
-URL = 'https://modal-labs--latency-test-web.modal.run'
+URL = 'https://modal-labs--faster-v2-model-web.modal.run'
 
 AUDIO_FILES = {
     'thirty': 'wavs/thirty.wav',
@@ -37,9 +37,9 @@ SCENARIOS = [  # (audio_type, batch_size, assisted)
 def perform_request(benchmark):
     def _perform_request(audio_type, batch_size, assisted, bench=True):
         session = requests.Session()
-        for _ in range(5):
-            print(f"Starting request at {time.monotonic()}")
-            session.post(URL, files = {'file': (AUDIO_FILES['long'], open(AUDIO_FILES['long'], 'rb'), 'audio/wav')}, data=None)
+        # for _ in range(5):
+        #     print(f"Starting request at {time.monotonic()}")
+        #     session.post(URL, files = {'file': (AUDIO_FILES['long'], open(AUDIO_FILES['long'], 'rb'), 'audio/wav')}, data=None)
         
         def fn():
             files = {'file': (AUDIO_FILES[audio_type], open(AUDIO_FILES[audio_type], 'rb'), 'audio/wav')}
