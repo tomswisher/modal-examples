@@ -15,7 +15,7 @@ pytest bench.py
 For just benchmarking modal latency
 
 ```
-modal deploy test.py
+modal deploy test_crazy.py
 ```
 
 ```
