@@ -95,6 +95,13 @@ image = (
         "numpy<2",
     )
     .copy_local_file(Path(__file__).parent / "model.py", "/root/model.py")
+    .copy_local_file(Path(__file__).parent / "dataset.py", "/root/dataset.py")
+    .copy_local_file(
+        Path(__file__).parent / "logs_manager.py", "/root/logs_manager.py"
+    )
+    .copy_local_file(
+        Path(__file__).parent / "tokenizer.py", "/root/tokenizer.py"
+    )
 )
 
 # We'll spin up a separate container to monitor the training logs with TensorBoard.
@@ -118,8 +125,10 @@ with image.imports():
 
     import tensorboard
     import torch
-    from model import AttentionModel, Dataset
-    from torch.utils.tensorboard import SummaryWriter
+    from dataset import Dataset
+    from logs_manager import LogsManager
+    from model import AttentionModel
+    from tokenizer import Tokenizer
 
 # ## Training Function
 
@@ -169,54 +178,36 @@ def train_model(
     )
 
     # use GPU if available
-    device = "cuda"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     L.info("Remote Device: %s // GPU: %s", device, gpu)
 
     input_file_path = volume_path / "shakespeare_char.txt"
     text = prepare_data(input_file_path, volume)
 
-    # construct dataset
+    # construct tokenizer & dataset
+    tokenizer = Tokenizer(text)
     dataset = Dataset(
         text,
+        tokenizer,
         train_percent,
         batch_size,
         hparams.context_size,
         n_eval_steps,
         device,
     )
-
     # build model
-    model = build_model(hparams, dataset.vocab_size, device)
+    model = build_model(hparams, tokenizer.vocab_size, device)
     num_parameters = sum(p.numel() for p in model.parameters())
     L.info(f"Num parameters: {num_parameters}")
 
-    # setup optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    optimizer = setup_optimizer(model, learning_rate)
 
     # TensorBoard logging & checkpointing prep
-    model_name = (
-        f"{experiment_name}"
-        f"_context_size={hparams.context_size}_n_heads={hparams.n_heads}"
-        f"_dropout={hparams.dropout}"
-    )
-    L.info(f"Model Name: {model_name}")
+    logs_manager = LogsManager(
+        experiment_name, hparams, num_parameters, tb_log_path)
+    L.info(f"Model name: {logs_manager.model_name}")
 
-    # save logs to something like:
-    # volume/logs/E2024-01-01-000000.000000/
-    #   E2024-01-01-000000.000000_context=8_n_heads=1_dropout=0.0/train
-    model_log_dir = tb_log_path / f"{experiment_name}/{model_name}"
-    model_log_dir.mkdir(parents=True, exist_ok=True)
-    train_writer = SummaryWriter(log_dir=f"{model_log_dir}/train")
-    val_writer = SummaryWriter(log_dir=f"{model_log_dir}/val")
-
-    # save hyperparameters to TensorBoard for easy reference
-    pretty_hparams_str = "\n".join(
-        f"{k}: {v}" for k, v in hparams.__dict__.items()
-    )
-    pretty_hparams_str += f"\nNum parameters: {num_parameters}"
-    train_writer.add_text("Hyperparameters", pretty_hparams_str)
-
-    model_save_dir = save_path / experiment_name / model_name
+    model_save_dir = save_path / experiment_name / logs_manager.model_name
     if model_save_dir.exists():
         L.info("Loading model from checkpoint...")
         checkpoint = torch.load(str(model_save_dir / model_filename))
@@ -236,7 +227,7 @@ def train_model(
         # save metadata for training restarts and inference
         checkpoint = {
             "model": model.state_dict(),
-            "chars": dataset.chars,
+            "unique_chars": tokenizer.unique_chars,
             "optimizer": optimizer.state_dict(),
             "val_loss": float("inf"),
             "steps": start_step,
@@ -251,11 +242,12 @@ def train_model(
         n_steps,
         n_steps_before_eval,
         n_steps_before_checkpoint,
+        n_eval_steps,
         dataset,
+        tokenizer,
         model,
         optimizer,
-        train_writer,
-        val_writer,
+        logs_manager,
         checkpoint,
         checkpoint_path,
         run_to_first_save,
@@ -300,6 +292,7 @@ def main(
 ):
     from datetime import datetime
     from itertools import product
+    return
 
     experiment_name = f"E{datetime.now().strftime('%Y-%m-%d-%H%M%S.%f')}"
     default_hparams = ModelHyperparameters()
@@ -444,20 +437,6 @@ assets_path = Path(__file__).parent / "assets"
 
 @app.cls(image=image, volumes={volume_path: volume}, gpu=gpu)
 class ModelInference:
-    def build_encode_decode(self, chars):
-        # create funcs for converting text into digits (encode) and
-        # vice versa (decode)
-        stoi = {c: i for i, c in enumerate(chars)}
-        itos = {i: c for i, c in enumerate(chars)}
-
-        def encode(s):
-            return [stoi[c] for c in s]
-
-        def decode(l):
-            return [itos[i] for i in l]
-
-        return encode, decode
-
     def load_model_impl(self):
         # loop through all model dirs and load the latest available model
         save_model_dirs = glob.glob(f"{save_path}/*")
@@ -483,7 +462,7 @@ class ModelInference:
 
         self.use_model_dir = latest_model_dir
         hparams = checkpoint["hparams"]
-        chars = checkpoint["chars"]
+        unique_chars = checkpoint["unique_chars"]
         steps = checkpoint["steps"]
         val_loss = checkpoint["val_loss"]
         self.is_fully_trained = checkpoint["finished_training"]
@@ -495,8 +474,8 @@ class ModelInference:
         )
 
         # reconstruct encode/decode
-        vocab_size = len(chars)
-        self.encode, self.decode = self.build_encode_decode(chars)
+        vocab_size = len(unique_chars)
+        self.tokenizer = Tokenizer(unique_chars)
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -514,23 +493,10 @@ class ModelInference:
     def generate(self, prompt):
         self.load_model_impl()  # load updated model if available
 
-        # generate 1000 new characters from input prompt
         n_new_tokens = 1000
-        encoded_prompt = self.encode(prompt)
-        # create a torch tensor from the encoded prompt
-        torch_input = torch.tensor(encoded_prompt, dtype=torch.long)
-        torch_input = torch_input.view(1, len(torch_input))  # add batch dim
-        torch_input = torch_input.to(self.device)
-
-        # generate new tokens
-        gen_out = self.model.generate(torch_input, n_new_tokens)[0]  # 0th batch
-        # decode from digits to text
-        chars_out = self.decode([x for x in gen_out.tolist()])[
-            len(encoded_prompt) :
-        ]
-        # join the characters into a string and return
-        str_out = "".join(chars_out)
-        return str_out
+        return self.model.generate_from_text(
+            self.tokenizer, prompt, n_new_tokens
+        )
 
 
 # First, we create a simple POST web endpoint for generating text.
@@ -677,16 +643,17 @@ def ui():
 # or [Hugging Face](https://huggingface.co/transformers/main_classes/trainer.html).
 
 
-def log_evals(result, step, t_last, val_writer, train_writer):
+def log_evals(result, step, t_last, logs_manager):
     runtime_s = timer() - t_last
     L.info(
         f"{step:5d}) // {runtime_s:>5.2f}s"
         f" // Train Loss: {result['train']:.2f} // Val Loss:"
         f" {result['val']:.2f}"
     )
-    val_writer.add_scalar("Cross Entropy Loss", result["val"], step)
-    val_writer.add_text("Sample Output", result["sample"], step)
-    train_writer.flush()
+    logs_manager.add_val_scalar("Cross Entropy Loss", result["val"], step)
+    logs_manager.add_val_text("Sample Output", result["sample"], step)
+    logs_manager.flush()
+    volume.commit()  # Make sure TensorBoard container will see it.
 
     return result
 
@@ -696,15 +663,36 @@ def training_loop(
     n_steps,
     n_steps_before_eval,
     n_steps_before_checkpoint,
+    n_eval_steps,
     dataset,
+    tokenizer,
     model,
     optimizer,
-    train_writer,
-    val_writer,
+    logs_manager,
     checkpoint,
     checkpoint_path,
     run_to_first_save,
 ):
+
+    @torch.no_grad()
+    def eval_model(model, dataset, tokenizer, n_eval_steps):
+        """Evaluate model on train and validation data."""
+        out = {}
+        model.eval()  # Turn off gradients
+        for split in ("train", "val"):
+            losses = torch.zeros(n_eval_steps)
+            for k in range(n_eval_steps):
+                xb, yb = dataset.get_batch(split)
+                logits, loss = model.forward(xb, yb)
+                losses[k] = loss
+            out[split] = losses.mean()
+
+        # Generate some output samples
+        out["sample"] = model.generate_from_text(tokenizer, "\n", 1000)
+
+        model.train()  # Turn on gradients
+        return out
+
     t_last = timer()
     for step in range(start_step, n_steps + 1):
         # sample a batch of data
@@ -717,13 +705,12 @@ def training_loop(
         optimizer.step()
 
         # log training loss
-        train_writer.add_scalar("Cross Entropy Loss", loss.item(), step)
+        logs_manager.add_train_scalar("Cross Entropy Loss", loss.item(), step)
 
         # evaluate model on validation set
         if step % n_steps_before_eval == 0:
-            out = dataset.eval_model(model)
-            log_evals(out, step, t_last, val_writer, train_writer)
-            volume.commit()
+            out = eval_model(model, dataset, tokenizer, n_eval_steps)
+            log_evals(out, step, t_last, logs_manager)
             t_last = timer()
 
         # save model with checkpoint information
@@ -769,3 +756,6 @@ def build_model(hparams, vocab_size, device):
 def setup_optimizer(model, learning_rate):
     """Set up the optimizer for the model."""
     return torch.optim.AdamW(model.parameters(), lr=learning_rate)
+
+
+
