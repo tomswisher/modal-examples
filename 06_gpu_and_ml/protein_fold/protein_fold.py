@@ -2,6 +2,13 @@
 # output-directory: "/tmp/protein-fold"
 # ---
 
+# Guide
+# - A protein is a sequence of atoms, some but not all of those atoms may belong
+# to an Amino Acid (AA).
+# - Residue is the same as Amino Acid.
+# - A residue ID corresponds to a specific AA, it is not an index in the
+# protein. e.g. residue ID 2 has the name "ILE" which is Isoleucine.
+#
 # Acronyms
 ## AA  - Amino Acid
 ## SSE - Secondary Structure
@@ -14,12 +21,11 @@
 # TODO
 # - Do we need PDB & PDBX files? Kind of silly but py3DMol doesn't seem to like
 # PDB files.
-# - Fix errors in some crystallized plot, missing ')' in py3DMol html.
 # - Error handling for bad sequence. E.g. non amino acid letter.
-# - Ask Charles about masking, k-mers, ...
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+import logging as L
 import modal
 from pathlib import Path
 import time
@@ -51,6 +57,7 @@ volume = modal.Volume.from_name(
 )
 volume_path = Path("/vol/data")
 PDBS_PATH = volume_path / "pdbs"
+HTMLS_PATH = volume_path / "htmls"
 
 with esm3_image.imports():
     from esm.sdk.api import ESM3InferenceClient, ESMProtein, GenerationConfig
@@ -101,8 +108,9 @@ class ModelInference:
         esm_protein.ptm = esm_protein.ptm.to('cpu') # Move off GPU
         return esm_protein
 
-web_app = FastAPI()
 assets_path = Path(__file__).parent / "assets"
+
+web_app = FastAPI()
 @app.function(
     image=web_app_image,
     concurrency_limit=1,
@@ -194,22 +202,64 @@ def protein_fold_fastapi_app():
         atoms = structure[
             b_structure.filter_amino_acids(structure)]
         residue_secondary_structures = b_structure.annotate_sse(atoms)
+        residue_ids = b_structure.get_residues(atoms)[0]
+        residue_id_to_sse = {}
+        for (residue_id, sse) in zip(residue_ids, residue_secondary_structures):
+            residue_id_to_sse[int(residue_id)] = sse
 
         # Extract PDB string from PDB file.
         pdb_file_path = fetch_pdb_if_necessary(pdb_id, "pdb")
         pdb_string = Path(pdb_file_path).read_text()
 
         return py3DMolViewWrapper().build_html_with_secondary_structure(
-            width, height, pdb_string, residue_secondary_structures)
+            width, height, pdb_string, residue_id_to_sse)
+
+    def remove_nested_quotes(html):
+        """Remove nested quotes in HEADER"""
+
+        if html.find("HEADER") == -1:
+            return html
+
+        # Need this because srcdoc adds another quote and triple is tricky.
+        i = html.index("HEADER")
+        # Getting the HEADER double quote end by matching:  \n","pdb");
+        j = html[i:].index('"pdb");') + i - len('",')
+        header_html = html[i:j]
+        header_html = header_html.replace("\\'", "")
+        header_html = header_html.replace('\\"', "")
+        header_html = header_html.replace("'", "")
+        header_html = header_html.replace('"', "")
+        print ("Len before:", len(html))
+        html = html[:i] + header_html + html[j:]
+        print ("Len after:", len(html))
+        return html
 
     def postprocess_html(html):
-        html = html.replace("'", '"') # ' -> " for HTML compatibility.
+        html = remove_nested_quotes(html)
+        html = html.replace("'", '"')
 
         html_wrapped =  f"""<!DOCTYPE html><html>{html}</html>"""
         iframe_html =  (f"""<iframe style="width: 100%; height: 400px;" """
             f"""allow="midi; display-capture;" frameborder="0" """
             f"""srcdoc='{html_wrapped}'></iframe>""")
         return iframe_html
+        # return html_wrapped
+
+    def run_esm_and_graph_debug(sequence, maybe_stale_pdb_id):
+        # Data cleaning
+        sequence = sequence.strip() # Remove whitespace
+        maybe_stale_pdb_id = maybe_stale_pdb_id.strip() # Remove whitespace
+
+        database_sse_html = build_database_html(sequence, maybe_stale_pdb_id)
+
+        # Save HTMLs to volume for debugging issues.
+        HTMLS_PATH.mkdir(parents=True, exist_ok=True)
+        with open(str(HTMLS_PATH / "db.html"), "w") as f:
+            f.write(postprocess_html(database_sse_html))
+
+        return [postprocess_html(h)
+                    # for h in (esm_sse_html, esm_pLDDT_html, database_sse_html)]
+                    for h in [database_sse_html] * 3]
 
     def run_esm_and_graph(sequence, maybe_stale_pdb_id):
         # Data cleaning
@@ -221,17 +271,26 @@ def protein_fold_fastapi_app():
         residue_pLDDTs = (100 * esm_protein.plddt).tolist()
         atoms = esm_protein.to_protein_chain().atom_array
         residue_secondary_structures = b_structure.annotate_sse(atoms)
+        residue_ids = b_structure.get_residues(atoms)[0]
+        residue_id_to_sse = {}
+        for (residue_id, sse) in zip(residue_ids, residue_secondary_structures):
+            residue_id_to_sse[int(residue_id)] = sse
 
         esm_sse_html = (
             py3DMolViewWrapper().build_html_with_secondary_structure(
             width, height, esm_protein.to_pdb_string(),
-            residue_secondary_structures))
+            residue_id_to_sse))
 
         esm_pLDDT_html = (
             py3DMolViewWrapper().build_html_with_pLDDTs(
             width, height, esm_protein.to_pdb_string(), residue_pLDDTs))
 
         database_sse_html = build_database_html(sequence, maybe_stale_pdb_id)
+
+        # Save HTMLs to volume for debugging issues.
+        HTMLS_PATH.mkdir(parents=True, exist_ok=True)
+        with open(str(HTMLS_PATH / "db.html"), "w") as f:
+            f.write(postprocess_html(database_sse_html))
 
         return [postprocess_html(h)
                     for h in (esm_sse_html, esm_pLDDT_html, database_sse_html)]
@@ -252,23 +311,73 @@ def protein_fold_fastapi_app():
         primary_hue="green", secondary_hue="emerald", neutral_hue="neutral"
     )
 
+    example_pdbs = [
+        "Insulin [1ZNI]",
+        "Myoglobin [1MBO]",
+        "Hemoglobin [1GZX]",
+        "GFP [1EMA]",
+        "Collagen [1CGD]",
+        "Antibody / Immunoglobulin G [1IGT]",
+        "Actin [1ATN]",
+        "Ribonuclease A [5RSA]",
+    ]
+    example_pdbs = [f"{i+1}) {x}" for i, x in enumerate(example_pdbs)]
+
     with gr.Blocks(
         theme=theme, css=css, title="ESM3 Protein Folding"
     ) as interface:
         # Title
         gr.Markdown("# Fold Proteins using ESM3 Fold")
 
-        # PDB ID text box + Get sequence from it button
-        pdb_id = gr.Textbox(
-            label="Enter PDB ID",
-            placeholder="e.g. '5JQ4', '1MBO', '1TPO', etc.")
-        get_sequence_button = gr.Button("Retrieve Sequence from PDB ID")
+        with gr.Row():
+            # PDB ID text box + Get sequence from it button
+            with gr.Column():
+                gr.Markdown("## Custom PDB ID")
+                pdb_id_box = gr.Textbox(
+                    label="Enter PDB ID or select one on the right",
+                    placeholder="e.g. '5JQ4', '1MBO', '1TPO', etc.")
+                get_sequence_button = (
+                    gr.Button("Retrieve Sequence from PDB ID", variant="primary"))
+
+                pdb_link_button = gr.Button(value="Open PDB page for ID")
+                rcsb_link = "https://www.rcsb.org/structure/"
+                pdb_link_button.click(
+                    fn=None,
+                    inputs=pdb_id_box,
+                    js=f"""(pdb_id) => {{ window.open("{rcsb_link}" + pdb_id) }}""",
+                                )
+
+            with gr.Column():
+                def extract_pdb_id(idx):
+                    pdb = example_pdbs[idx]
+                    s = pdb.index("[") + 1
+                    e = pdb.index("]")
+                    return pdb[s:e]
+                h = int(len(example_pdbs) / 2)
+
+                gr.Markdown("## Example PDB IDs")
+                with gr.Row():
+                    with gr.Column():
+                        # add in a few examples to inspire users
+                        for i, pdb in enumerate(example_pdbs[:h]):
+                            btn = gr.Button(pdb, variant="secondary")
+                            btn.click(
+                                fn=lambda j=i: extract_pdb_id(j), outputs=pdb_id_box)
+
+                    with gr.Column():
+                        # more examples
+                        for i, pdb in enumerate(example_pdbs[h:]):
+                            btn = gr.Button(pdb, variant="secondary")
+                            btn.click(
+                                fn=lambda j=i+4: extract_pdb_id(j), outputs=pdb_id_box)
 
         # Sequence text box + Run ESM from it button
-        sequence = gr.Textbox(
+        gr.Markdown("## Sequence")
+        sequence_box = gr.Textbox(
             label="Enter a sequence or retrieve it from a PDB ID",
             placeholder="e.g. 'MVTRLE...', 'GKQEG...', etc.")
-        run_esm_and_graph_button = gr.Button("Run ESM3 Fold on Sequence")
+        run_esm_and_graph_button = (
+            gr.Button("Run ESM3 Fold on Sequence", variant="primary"))
 
         # 3 Columns of Protein Folding
         htmls = []
@@ -306,9 +415,9 @@ def protein_fold_fastapi_app():
                 htmls.append(gr.HTML())
 
         get_sequence_button.click(
-            fn=get_sequence, inputs=[pdb_id], outputs=[sequence])
+            fn=get_sequence, inputs=[pdb_id_box], outputs=[sequence_box])
         run_esm_and_graph_button.click(fn=run_esm_and_graph,
-            inputs=[sequence, pdb_id], outputs=htmls)
+            inputs=[sequence_box, pdb_id_box], outputs=htmls)
 
     # mount for execution on Modal
     return mount_gradio_app(
@@ -319,12 +428,16 @@ def protein_fold_fastapi_app():
 
 @app.local_entrypoint()
 def main():
-    # YFP?
-    sequence = (
-        "AMFSKVNNQKMLEDCFYIRKKVFVEEQGIPEESEIDEYESESIHLIGYDNGQPVATARIRPINETTVKIERVAVMKSHRGQGMGRMLMQAVESLAKDEGFYVATMNAQCHAIPFYESLNFKMRGNIFLEEGIEHIEMTKKLT")
-    for i in range(10):
-        ModelInference().generate.remote(sequence)
-        x = 1
+    pdb_id = "1ZNI"
+    # pdb_id = "1MBO"
+    test = retrieve_pdb.remote(pdb_id)
+
+    # # YFP?
+    # sequence = (
+        # "AMFSKVNNQKMLEDCFYIRKKVFVEEQGIPEESEIDEYESESIHLIGYDNGQPVATARIRPINETTVKIERVAVMKSHRGQGMGRMLMQAVESLAKDEGFYVATMNAQCHAIPFYESLNFKMRGNIFLEEGIEHIEMTKKLT")
+    # for i in range(10):
+        # ModelInference().generate.remote(sequence)
+        # x = 1
 
 if __name__ == "__main__":
     main()

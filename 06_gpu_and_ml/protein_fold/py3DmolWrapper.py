@@ -40,7 +40,7 @@ class py3DMolViewWrapper(object):
     ### Secondary Structures Plot ###
     #################################
     def setup_secondary_structures_plot(self,
-            pdb_string, residue_secondary_structures):
+            pdb_string, residue_id_to_sse):
         residue_ids = set([])
         for line in pdb_string.split('\n'):
             if line.startswith('ATOM'):
@@ -48,9 +48,9 @@ class py3DMolViewWrapper(object):
 
         num_residues = len(residue_ids)
         assert num_residues >= 1
-        if num_residues != len(residue_secondary_structures):
-            L.warning(f"{num_residues} != {len(residue_secondary_structures)}")
-        for letter_code in residue_secondary_structures:
+        if num_residues != len(residue_id_to_sse):
+            L.warning(f"{num_residues} != {len(residue_id_to_sse)}")
+        for letter_code in residue_id_to_sse.values():
             assert letter_code in self.secondary_structure_to_color.keys()
 
         lowest_residue_id = min(residue_ids)
@@ -60,14 +60,17 @@ class py3DMolViewWrapper(object):
         return lowest_residue_id
 
     def build_html_with_secondary_structure(self,
-            width, height, pdb_string, residue_secondary_structures):
+            width, height, pdb_string, residue_id_to_sse):
         view = py3Dmol.view(width=width, height=height)
         view.addModel(pdb_string, "pdb")
 
         lowest_residue_id = self.setup_secondary_structures_plot(
-            pdb_string, residue_secondary_structures)
-        color_map = {lowest_residue_id+i : self.secondary_structure_to_color[sse]
-            for i, sse in enumerate(residue_secondary_structures)}
+            pdb_string, residue_id_to_sse)
+
+        color_map = {rid : self.secondary_structure_to_color[sse]
+            for rid, sse in residue_id_to_sse.items()}
+        print (lowest_residue_id)
+        print (color_map)
 
         view.setStyle(
             {"cartoon":
